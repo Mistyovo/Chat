@@ -1,9 +1,8 @@
 import tkinter as tk
-from tkinter import simpledialog, messagebox, filedialog, ttk
+from tkinter import messagebox, filedialog, ttk
 import socket
 import threading
 import json
-import base64
 import gzip
 import os
 
@@ -23,50 +22,63 @@ def get_connection_settings():
     
     dialog = tk.Toplevel(temp_root)
     dialog.title('连接设置')
-    dialog.geometry('400x140')
+    dialog.geometry('340x150')
     dialog.resizable(False, False)
     
     # 居中显示对话框到屏幕中央
     dialog.update_idletasks()
-    x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
-    y = (dialog.winfo_screenheight() // 2) - (140 // 2)
-    dialog.geometry(f"400x140+{x}+{y}")
+    x = (dialog.winfo_screenwidth() // 2) - (340 // 2)
+    y = (dialog.winfo_screenheight() // 2) - (150 // 2)
+    dialog.geometry(f"340x150+{x}+{y}")
     
-    dialog.grab_set()
+    # 设置对话框的行为
+    # 不使用 grab_set() 以允许最小化
     dialog.lift()  # 确保对话框在最前面
     dialog.focus_force()  # 强制获取焦点
+    dialog.attributes('-topmost', True)  # 设置为最顶层
+    
+    # 延迟取消置顶，让用户可以操作
+    def remove_topmost():
+        dialog.attributes('-topmost', False)
+    dialog.after(100, remove_topmost)
     
     result = {}
     
     # 昵称输入
-    tk.Label(dialog, text='昵称:', font=('Arial', 10)).grid(row=0, column=0, sticky='w', padx=10, pady=10)
+    tk.Label(dialog, text='昵称:', font=('Arial', 10)).grid(row=0, column=0, sticky='w', padx=8, pady=8)
     nickname_entry = tk.Entry(dialog, width=25, font=('Arial', 10))
-    nickname_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
+    nickname_entry.grid(row=0, column=1, columnspan=3, padx=8, pady=8, sticky='ew')
     nickname_entry.focus()
     
     # 服务器地址输入
-    tk.Label(dialog, text='服务器地址:', font=('Arial', 10)).grid(row=1, column=0, sticky='w', padx=10, pady=5)
-    host_entry = tk.Entry(dialog, width=15, font=('Arial', 10))
+    tk.Label(dialog, text='服务器地址:', font=('Arial', 10)).grid(row=1, column=0, sticky='w', padx=8, pady=3)
+    host_entry = tk.Entry(dialog, width=12, font=('Arial', 10))
     host_entry.insert(0, '127.0.0.1')  # 默认IP地址
-    host_entry.grid(row=1, column=1, padx=(10, 5), pady=5, sticky='ew')
+    host_entry.grid(row=1, column=1, padx=(8, 3), pady=3, sticky='ew')
     
     # 端口输入
-    tk.Label(dialog, text='端口:', font=('Arial', 10)).grid(row=1, column=2, sticky='w', padx=5, pady=5)
+    tk.Label(dialog, text='端口:', font=('Arial', 10)).grid(row=1, column=2, sticky='w', padx=3, pady=3)
     port_entry = tk.Entry(dialog, width=8, font=('Arial', 10))
     port_entry.insert(0, '55555')  # 默认端口
-    port_entry.grid(row=1, column=3, padx=(5, 10), pady=5)
+    port_entry.grid(row=1, column=3, padx=(3, 8), pady=3)
+    
+    # 密码输入
+    tk.Label(dialog, text='密码:', font=('Arial', 10)).grid(row=2, column=0, sticky='w', padx=8, pady=3)
+    password_entry = tk.Entry(dialog, width=25, font=('Arial', 10), show='*')
+    password_entry.grid(row=2, column=1, columnspan=3, padx=8, pady=3, sticky='ew')
     
     # 配置列权重，让输入框能够适当调整大小
     dialog.grid_columnconfigure(1, weight=1)
     
     # 按钮框架
     button_frame = tk.Frame(dialog)
-    button_frame.grid(row=2, column=0, columnspan=4, pady=20)
+    button_frame.grid(row=3, column=0, columnspan=4, pady=10)
     
     def on_ok():
         nickname = nickname_entry.get().strip()
         host = host_entry.get().strip()
         port_str = port_entry.get().strip()
+        password = password_entry.get()  # 密码可以为空，不需要strip()
         
         if not nickname:
             messagebox.showwarning("输入错误", "请输入昵称！")
@@ -98,6 +110,7 @@ def get_connection_settings():
         result['nickname'] = nickname
         result['host'] = host
         result['port'] = port
+        result['password'] = password
         result['success'] = True
         dialog.destroy()
         temp_root.destroy()
@@ -121,6 +134,7 @@ def get_connection_settings():
     nickname_entry.bind('<Return>', on_enter)
     host_entry.bind('<Return>', on_enter)
     port_entry.bind('<Return>', on_enter)
+    password_entry.bind('<Return>', on_enter)
     
     # 绑定窗口关闭事件
     def on_close():
@@ -145,6 +159,7 @@ if not settings.get('success', False):
 nickname = settings['nickname']
 SERVER_HOST = settings['host']
 SERVER_PORT = settings['port']
+SERVER_PASSWORD = settings['password']
 
 root.deiconify()  # 显示主窗口
 root.title('聊天室')
@@ -168,6 +183,23 @@ def receive():
             
             if message == 'NICK':
                 client.send(nickname.encode('utf-8'))
+            elif message == 'PASS':
+                # 服务器请求密码验证
+                client.send(SERVER_PASSWORD.encode('utf-8'))
+            elif message == "AUTH_SUCCESS":
+                # 验证成功，在聊天框显示连接成功信息
+                chat_box.config(state='normal')
+                chat_box.insert(tk.END, f"已连接到服务器 {SERVER_HOST}:{SERVER_PORT}！昵称：{nickname}\n", 'system')
+                chat_box.see(tk.END)
+                chat_box.config(state='disabled')
+                
+                # 自动刷新文件列表
+                root.after(1000, refresh_file_list)  # 延迟1秒后刷新文件列表
+            elif message == "AUTH_FAILED":
+                # 密码验证失败
+                messagebox.showerror("认证失败", "服务器密码验证失败！")
+                root.quit()
+                return
             elif message.startswith("FILE_LIST:"):
                 # 处理文件列表
                 handle_file_list_message(message)
@@ -382,13 +414,7 @@ def connect_to_server():
         receive_thread = threading.Thread(target=receive, daemon=True)
         receive_thread.start()
         
-        # 在聊天框显示连接成功信息
-        chat_box.config(state='normal')
-        chat_box.insert(tk.END, f"已连接到服务器 {SERVER_HOST}:{SERVER_PORT}！昵称：{nickname}\n", 'system')
-        chat_box.config(state='disabled')
-        
-        # 自动刷新文件列表
-        root.after(1000, refresh_file_list)  # 延迟1秒后刷新文件列表
+        # 不在这里显示连接成功信息，等待密码验证通过后再显示
         
     except Exception as e:
         messagebox.showerror("连接错误", f"无法连接到服务器: {e}")

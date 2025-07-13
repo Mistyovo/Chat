@@ -2,7 +2,6 @@ import socket
 import threading
 import os
 import json
-import base64
 import gzip
 from datetime import datetime
 
@@ -10,6 +9,10 @@ from datetime import datetime
 SERVER_HOST = '0.0.0.0'
 SERVER_PORT = 55555
 BUFFER_SIZE = 65536  # 64KB缓冲区，提高传输速度
+
+# 密码配置 - 可以在这里直接设置密码，或在启动时交互式设置
+SERVER_PASSWORD = "ABC"  # 服务器密码，为空表示不需要密码验证
+INTERACTIVE_PASSWORD_SETUP = False  # 设置为True可在启动时交互式设置密码
 
 # 文件存储目录
 UPLOAD_DIR = "uploads"
@@ -83,7 +86,25 @@ def sync_files_and_metadata():
 # 启动时进行文件同步
 def initialize_server():
     """初始化服务器，加载并同步文件"""
+    global SERVER_PASSWORD
     print("正在初始化服务器...")
+    
+    # 交互式密码设置
+    if INTERACTIVE_PASSWORD_SETUP:
+        password_input = input("请设置服务器密码（回车表示无密码）: ").strip()
+        if password_input:
+            SERVER_PASSWORD = password_input
+            print("密码已设置")
+        else:
+            SERVER_PASSWORD = ""
+            print("无密码模式")
+    
+    # 显示密码状态
+    if SERVER_PASSWORD:
+        print(f"服务器密码验证已启用: {'*' * len(SERVER_PASSWORD)}")
+    else:
+        print("服务器密码验证已禁用（无密码）")
+    
     load_file_metadata()
     sync_files_and_metadata()
     print("服务器初始化完成")
@@ -340,12 +361,29 @@ def receive():
         # 接收客户端昵称
         client.send('NICK'.encode('utf-8'))
         nickname = client.recv(1024).decode('utf-8')
+        
+        # 密码验证
+        client.send('PASS'.encode('utf-8'))
+        client_password = client.recv(1024).decode('utf-8')
+        
+        # 验证密码
+        if SERVER_PASSWORD and client_password != SERVER_PASSWORD:
+            # 服务器有密码且客户端密码不匹配
+            client.send('AUTH_FAILED'.encode('utf-8'))
+            print(f'\033[91mUser {nickname} from {address} authentication failed\033[0m')
+            client.close()
+            continue
+        elif not SERVER_PASSWORD:
+            # 服务器没有设置密码，无论客户端输入什么都通过
+            pass
+        
+        # 验证成功
+        client.send('AUTH_SUCCESS'.encode('utf-8'))
         nicknames.append(nickname)
         clients.append(client)
 
-        print(f'\033[95mUser {nickname}{str(address)} has connected, current online users: {len(clients)}\033[0m')
+        print(f'\033[95mUser {nickname} from {str(address)} has connected, current online users: {len(clients)}\033[0m')
         broadcast(f'{nickname} 已加入聊天室！'.encode('utf-8'))
-        client.send('已连接到服务器！'.encode('utf-8'))
 
         # 为每个客户端启动一个线程
         thread = threading.Thread(target=handle, args=(client,))
