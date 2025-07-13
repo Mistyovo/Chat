@@ -581,23 +581,6 @@ SOFTWARE.
 - 相关的错误日志和截图
 - 期望的行为描述
 
-## 联系方式与支持
-
-### 技术支持
-- **GitHub Issues**：[项目Issues页面](https://github.com/your-repo/chat-system/issues)
-- **讨论区**：[GitHub Discussions](https://github.com/your-repo/chat-system/discussions)
-- **邮件支持**：support@your-domain.com
-
-### 社区交流
-- **QQ群**：123456789
-- **微信群**：添加微信号 your-wechat 备注"聊天室项目"
-- **Telegram**：@your-telegram-group
-
-### 商业支持
-如需商业支持、定制开发或企业部署服务，请联系：
-- **商务邮箱**：business@your-domain.com
-- **电话**：+86-xxx-xxxx-xxxx
-
 ## 致谢
 
 ### 特别感谢
