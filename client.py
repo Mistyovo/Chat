@@ -8,18 +8,143 @@ import gzip
 import os
 
 # 客户端配置
-SERVER_HOST = '127.0.0.1'
-SERVER_PORT = 55555
 BUFFER_SIZE = 65536  # 64KB缓冲区，提高传输速度
 
 # 创建主窗口（用于弹出输入框）
 root = tk.Tk()
 root.withdraw()  # 先隐藏主窗口
 
-# 弹出输入昵称对话框
-nickname = simpledialog.askstring('昵称', '请输入你的昵称:')
-if not nickname:
+# 创建连接设置对话框
+def get_connection_settings():
+    """获取连接设置的对话框"""
+    # 创建一个临时的根窗口用于对话框
+    temp_root = tk.Tk()
+    temp_root.withdraw()
+    
+    dialog = tk.Toplevel(temp_root)
+    dialog.title('连接设置')
+    dialog.geometry('400x140')
+    dialog.resizable(False, False)
+    
+    # 居中显示对话框到屏幕中央
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
+    y = (dialog.winfo_screenheight() // 2) - (140 // 2)
+    dialog.geometry(f"400x140+{x}+{y}")
+    
+    dialog.grab_set()
+    dialog.lift()  # 确保对话框在最前面
+    dialog.focus_force()  # 强制获取焦点
+    
+    result = {}
+    
+    # 昵称输入
+    tk.Label(dialog, text='昵称:', font=('Arial', 10)).grid(row=0, column=0, sticky='w', padx=10, pady=10)
+    nickname_entry = tk.Entry(dialog, width=25, font=('Arial', 10))
+    nickname_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
+    nickname_entry.focus()
+    
+    # 服务器地址输入
+    tk.Label(dialog, text='服务器地址:', font=('Arial', 10)).grid(row=1, column=0, sticky='w', padx=10, pady=5)
+    host_entry = tk.Entry(dialog, width=15, font=('Arial', 10))
+    host_entry.insert(0, '127.0.0.1')  # 默认IP地址
+    host_entry.grid(row=1, column=1, padx=(10, 5), pady=5, sticky='ew')
+    
+    # 端口输入
+    tk.Label(dialog, text='端口:', font=('Arial', 10)).grid(row=1, column=2, sticky='w', padx=5, pady=5)
+    port_entry = tk.Entry(dialog, width=8, font=('Arial', 10))
+    port_entry.insert(0, '55555')  # 默认端口
+    port_entry.grid(row=1, column=3, padx=(5, 10), pady=5)
+    
+    # 配置列权重，让输入框能够适当调整大小
+    dialog.grid_columnconfigure(1, weight=1)
+    
+    # 按钮框架
+    button_frame = tk.Frame(dialog)
+    button_frame.grid(row=2, column=0, columnspan=4, pady=20)
+    
+    def on_ok():
+        nickname = nickname_entry.get().strip()
+        host = host_entry.get().strip()
+        port_str = port_entry.get().strip()
+        
+        if not nickname:
+            messagebox.showwarning("输入错误", "请输入昵称！")
+            nickname_entry.focus()
+            return
+        
+        if not host:
+            messagebox.showwarning("输入错误", "请输入服务器地址！")
+            host_entry.focus()
+            return
+        
+        if not port_str:
+            messagebox.showwarning("输入错误", "请输入端口号！")
+            port_entry.focus()
+            return
+        
+        # 验证端口号
+        try:
+            port = int(port_str)
+            if port < 1 or port > 65535:
+                raise ValueError("端口号必须在1-65535之间")
+        except ValueError as e:
+            messagebox.showerror("端口格式错误", 
+                               f"端口号格式不正确！\n{e}")
+            port_entry.focus()
+            port_entry.select_range(0, tk.END)
+            return
+        
+        result['nickname'] = nickname
+        result['host'] = host
+        result['port'] = port
+        result['success'] = True
+        dialog.destroy()
+        temp_root.destroy()
+    
+    def on_cancel():
+        result['success'] = False
+        dialog.destroy()
+        temp_root.destroy()
+    
+    # 确定和取消按钮
+    ok_button = tk.Button(button_frame, text='连接', command=on_ok, width=10)
+    ok_button.pack(side=tk.LEFT, padx=5)
+    
+    cancel_button = tk.Button(button_frame, text='取消', command=on_cancel, width=10)
+    cancel_button.pack(side=tk.LEFT, padx=5)
+    
+    # 绑定回车键
+    def on_enter(event):
+        on_ok()
+    
+    nickname_entry.bind('<Return>', on_enter)
+    host_entry.bind('<Return>', on_enter)
+    port_entry.bind('<Return>', on_enter)
+    
+    # 绑定窗口关闭事件
+    def on_close():
+        result['success'] = False
+        dialog.destroy()
+        temp_root.destroy()
+    
+    dialog.protocol("WM_DELETE_WINDOW", on_close)
+    
+    # 等待对话框关闭
+    temp_root.wait_window(dialog)
+    
+    return result
+
+# 获取连接设置
+root.update()  # 确保主窗口已经初始化
+settings = get_connection_settings()
+if not settings.get('success', False):
+    root.destroy()
     exit()
+
+nickname = settings['nickname']
+SERVER_HOST = settings['host']
+SERVER_PORT = settings['port']
 
 root.deiconify()  # 显示主窗口
 root.title('聊天室')
@@ -259,7 +384,7 @@ def connect_to_server():
         
         # 在聊天框显示连接成功信息
         chat_box.config(state='normal')
-        chat_box.insert(tk.END, f"已连接到服务器！昵称：{nickname}\n", 'system')
+        chat_box.insert(tk.END, f"已连接到服务器 {SERVER_HOST}:{SERVER_PORT}！昵称：{nickname}\n", 'system')
         chat_box.config(state='disabled')
         
         # 自动刷新文件列表
