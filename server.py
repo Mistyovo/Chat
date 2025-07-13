@@ -4,23 +4,108 @@ import os
 import json
 import gzip
 import time
+import sys
 from datetime import datetime
 
-SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 55555
-BUFFER_SIZE = 65536
-SERVER_PASSWORD = ""
-INTERACTIVE_PASSWORD_SETUP = True
-UPLOAD_DIR = "uploads"
+# Default configuration
+DEFAULT_CONFIG = {
+    "server": {
+        "host": "0.0.0.0",
+        "port": 55555,
+        "password": "",
+        "interactive_password_setup": True
+    },
+    "file_transfer": {
+        "upload_dir": "uploads",
+        "buffer_size": 65536,
+        "max_file_size": 104857600  # 100MB
+    },
+    "logging": {
+        "enable_logging": True,
+        "log_level": "INFO"
+    }
+}
+
+CONFIG_FILE = "server_config.json"
+
+def create_default_config():
+    """Create default configuration file"""
+    print("Configuration file not found, creating default configuration file...")
+    
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
+        
+        print(f"✅ Default configuration file created: {CONFIG_FILE}")
+        print("\nPlease modify the settings in the configuration file as needed:")
+        print("- server.host: Server listening address (0.0.0.0 means listen on all interfaces)")
+        print("- server.port: Server port number")
+        print("- server.password: Server password (empty string means no password)")
+        print("- server.interactive_password_setup: Whether to enable interactive password setup")
+        print("- file_transfer.upload_dir: File upload directory")
+        print("- file_transfer.buffer_size: Transfer buffer size")
+        print("- file_transfer.max_file_size: Maximum file size limit")
+        print("\nPlease restart the server program after modification.")
+        
+        return False
+    except Exception as e:
+        print(f"❌ Failed to create configuration file: {e}")
+        return False
+
+def load_config():
+    """Load configuration file"""
+    if not os.path.exists(CONFIG_FILE):
+        return create_default_config()
+    
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        
+        # Validate configuration file structure
+        required_keys = ["server", "file_transfer"]
+        for key in required_keys:
+            if key not in config:
+                print(f"❌ Configuration file missing required '{key}' section")
+                return False
+        
+        print(f"✅ Configuration file loaded successfully: {CONFIG_FILE}")
+        return config
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Configuration file format error: {e}")
+        print("Please check if the JSON format is correct")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to load configuration file: {e}")
+        return False
+
+# Load configuration
+config = load_config()
+if not config:
+    sys.exit(1)
+
+# Read settings from configuration file
+SERVER_HOST = config["server"]["host"]
+SERVER_PORT = config["server"]["port"]
+SERVER_PASSWORD = config["server"]["password"]
+INTERACTIVE_PASSWORD_SETUP = config["server"]["interactive_password_setup"]
+UPLOAD_DIR = config["file_transfer"]["upload_dir"]
+BUFFER_SIZE = config["file_transfer"]["buffer_size"]
 METADATA_FILE = os.path.join(UPLOAD_DIR, "file_metadata.json")
+
+# Display loaded configuration information
+print(f"📋 Server Configuration:")
+print(f"   Listen Address: {SERVER_HOST}")
+print(f"   Listen Port: {SERVER_PORT}")
+print(f"   Upload Directory: {UPLOAD_DIR}")
+print(f"   Buffer Size: {BUFFER_SIZE}")
+print(f"   Interactive Password Setup: {'Enabled' if INTERACTIVE_PASSWORD_SETUP else 'Disabled'}")
 
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
+    print(f"📁 Created upload directory: {UPLOAD_DIR}")
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((SERVER_HOST, SERVER_PORT))
-server.listen()
-
+# Global variables
 clients = []
 nicknames = []
 uploaded_files = []
@@ -75,9 +160,11 @@ def sync_files_and_metadata():
 
 
 def initialize_server():
-    global SERVER_PASSWORD
+    global SERVER_PASSWORD, server
     print("\033[92mInitializing server...\033[0m")
-    if INTERACTIVE_PASSWORD_SETUP:
+    
+    # If no password is set in config file and interactive setup is enabled, prompt user for input
+    if not SERVER_PASSWORD and INTERACTIVE_PASSWORD_SETUP:
         password_input = input(
             "\033[93mPlease set the server password (press Enter for no password): \033[0m"
         ).strip()
@@ -85,17 +172,34 @@ def initialize_server():
             SERVER_PASSWORD = password_input
             print(f"Password has been set (length: {len(SERVER_PASSWORD)})")
         else:
-            SERVER_PASSWORD = ""
             print("No password mode - anyone can connect")
+    
     if SERVER_PASSWORD:
         print(f"Server password authentication: ENABLED")
     else:
         print(f"Server password authentication: DISABLED")
+    
+    # Create and bind socket
+    try:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow port reuse
+        server.bind((SERVER_HOST, SERVER_PORT))
+        server.listen()
+        print(f"🚀 Server started successfully, listening on {SERVER_HOST}:{SERVER_PORT}")
+    except OSError as e:
+        if e.errno == 10048:  # Windows: Address already in use
+            print(f"❌ Port {SERVER_PORT} is already in use, please check if another program is using this port")
+        elif e.errno == 10049:  # Windows: Cannot assign requested address
+            print(f"❌ Cannot bind to address {SERVER_HOST}, please check network configuration")
+        else:
+            print(f"❌ Server startup failed: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Server startup failed: {e}")
+        sys.exit(1)
+    
     load_file_metadata()
     sync_files_and_metadata()
-
-
-initialize_server()
 
 
 def broadcast(message):
@@ -199,7 +303,7 @@ def handle_file_upload(client, filename, file_size, uploader):
         )
         broadcast(notification.encode("utf-8"))
 
-        # 发送上传成功消息
+        # Send upload success message
         client.send("UPLOAD_SUCCESS".encode("utf-8"))
         print(
             f"File uploaded successfully: {filename} by {uploader} (original size: {len(file_data)}, compressed size: {len(compressed_data)})"
@@ -282,26 +386,26 @@ def handle(client):
                 if index < len(nicknames):
                     nickname = nicknames[index]
                     nicknames.remove(nickname)
-                    broadcast(f"用户 {nickname} 已离开聊天室！".encode("utf-8"))
+                    broadcast(f"User {nickname} has left the chat room!".encode("utf-8"))
                     print(
                         f"\033[93mUser {nickname} has left, current online users: {len(clients)}\033[0m"
                     )
             break
 
 
-# 接收新的客户端连接
+# Handle new client connections
 def receive():
     while True:
         client, address = server.accept()
         try:
-            # 请求昵称
+            # Request nickname
             client.send("NICK".encode("utf-8"))
             nickname = client.recv(1024).decode("utf-8")
             
-            # 请求密码
+            # Request password
             client.send("PASS".encode("utf-8"))
             
-            # 使用长度前缀的方法接收密码
+            # Use length prefix method to receive password
             client.settimeout(3.0)  # 3秒超时
             client_password = ""
             try:
@@ -358,7 +462,7 @@ def receive():
                 # 添加小延迟，确保AUTH_SUCCESS消息被客户端单独处理
                 time.sleep(0.1)
                 
-                broadcast(f"{nickname} 已加入聊天室！".encode("utf-8"))
+                broadcast(f"{nickname} has joined the chat room!".encode("utf-8"))
                 thread = threading.Thread(target=handle, args=(client,))
                 thread.start()
                 
@@ -370,5 +474,16 @@ def receive():
                 pass
 
 
-print("\033[92mServer is listening...\033[0m")
-receive()
+# 启动服务器
+if __name__ == "__main__":
+    initialize_server()
+    print("\033[92mServer is listening...\033[0m")
+    try:
+        receive()
+    except KeyboardInterrupt:
+        print("\n\033[93mServer is shutting down...\033[0m")
+        server.close()
+        print("\033[92mServer has been closed\033[0m")
+    except Exception as e:
+        print(f"\033[91mServer runtime error: {e}\033[0m")
+        server.close()

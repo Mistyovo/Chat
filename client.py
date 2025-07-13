@@ -14,7 +14,6 @@ root.withdraw()
 
 
 
-
 def get_connection_settings():
     temp_root = tk.Tk()
     temp_root.withdraw()
